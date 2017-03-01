@@ -6,6 +6,7 @@
 #include <unistd.h> 
 #include "mpi.h"
 
+#define VERIFY 1 // should we verify our results?
 #define NUM_RUNS 5
 #define MIN(a,b) (((a)<(b))?(a):(b))
 
@@ -21,6 +22,8 @@ double master(int, double*, double*, double*); /* do master work and report time
 
 void worker(int, double*, double*, double*); /* do worker work */
 
+double matmul(int, double*, double*, double*);
+
 int main(int argc, char **argv) {
 
   /*
@@ -33,7 +36,7 @@ int main(int argc, char **argv) {
   */
 
   int N, i, j, k, run;
-  double *A, *B, *C;
+  double *A, *B, *C, *C2; /* master buffers */
   double *Ablock, *Bblock, *Cblock; /* worker buffers */
   int sizeAB, sizeC, iA, iB, iC;
 
@@ -59,7 +62,15 @@ int main(int argc, char **argv) {
       buffer_init(N / size, N, Ablock, Bblock, Cblock);
       MPI_Barrier(MPI_COMM_WORLD);
       master(N, A, B, C);
-      
+
+      // verify correctness
+      if(VERIFY){
+        matmul(N, A, B, C2);
+        for(i = 0; i < N * N; i++){
+          if(C[i] != C2[i])
+            printf("ERROR: element number %d is %f but should be %f\n", i, C[i], C2[i]);
+        }
+      }
       // cleanup
       free(A); free(Ablock);
       free(B); free(Bblock);
@@ -170,6 +181,22 @@ void matrix_init(int N, double *A, double *B, double *C){
 
 }
 
-void master(int N, double *A, double *B, double *C){}
-void worker(int N, double *A, double *B, double *C){}
+void master(int N, double *A, double *B, double *C, double *Ablock, double *Bblock, double *Cblock){
+  // TODO
+  //
+  //  (1) Assign a row block of A to each processor
+  //  (2) Assign a column block of B to each processor
+  //  (3) Run Worker
+  //  (4) Collect results using gather
+}
+
+void worker(int N, double *Ablock, double *Bblock, double *Cblock){
+  // TODO
+  //
+  //  (1) Wait for row assignment
+  //  (2) For i = 0 --> num_procs
+  //      - Wait for column "j" assignment
+  //      - Calculate j'th block of C
+  //  (3) Send C block row to master
+}
 
