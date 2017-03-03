@@ -6,9 +6,16 @@
 #include <unistd.h> 
 #include "mpi.h"
 
+#define ROOT 0 // root process id
+#define TAG 99
 #define VERIFY 1 // should we verify our results?
 #define NUM_RUNS 5
 #define MIN(a,b) (((a)<(b))?(a):(b))
+
+// don't make this a macro b/c side effects
+int start_index(int N, int i){
+  return (i*(i+1)/2);
+}
 
 double buffer_init(int blockwidth, int N, double *Ablock, double *Bblock, double *Cblock){
   Ablock = (double *) calloc(blockwidth * N, sizeof(double)); /* there is some extra space here */
@@ -18,9 +25,9 @@ double buffer_init(int blockwidth, int N, double *Ablock, double *Bblock, double
 
 double matrix_init(int, double*, double*, double*);
 
-double master(int, double*, double*, double*); /* do master work and report time */
+double master(int, double*, double*, double*, double*, double*, double*); /* do master work and report time */
 
-void worker(int, double*, double*, double*); /* do worker work */
+void worker(int, int, double*, double*, double*); /* do worker work, but do not send to master */
 
 double matmul(int, double*, double*, double*);
 
@@ -43,7 +50,7 @@ int main(int argc, char **argv) {
   // make sure to change NUM_RUNS along with this!
   int sizes[NUM_RUNS]={1000,2000,4000,8000,12000};
 
-  double wctime;
+  double wctime0, wctime1, cputime;
   
   MPI_Status status;
 
@@ -52,7 +59,7 @@ int main(int argc, char **argv) {
   MPI_Comm_size(MPI_COMM_WORLD,&size); // Get no. of processes
   MPI_Comm_rank(MPI_COMM_WORLD, &rank); // Which process am I?
   
-  if (rank == 0) { /* master */
+  if (rank == ROOT) { /* master */
     printf("Matrix multiplication times:\n   N      TIME (secs)\n -----   -------------\n");
 
     // do all master runs
@@ -61,22 +68,30 @@ int main(int argc, char **argv) {
       matrix_init(N, A, B, C);
       buffer_init(N / size, N, Ablock, Bblock, Cblock);
       MPI_Barrier(MPI_COMM_WORLD);
+
+      timing(&wctime0, &cputime);
       master(N, A, B, C);
+      timing(&wctime1, &cputime);
+      
+      printf ("  %5d    %9.4f\n", N, wctime1 - wctime0);
 
       // verify correctness
       if(VERIFY){
         matmul(N, A, B, C2);
         for(i = 0; i < N * N; i++){
-          if(C[i] != C2[i])
+          if(C[i] != C2[i]){
             printf("ERROR: element number %d is %f but should be %f\n", i, C[i], C2[i]);
+            goto cleanup;
+          }
         }
+        printf("They all match up! Hooray!\n");
       }
-      // cleanup
-      free(A); free(Ablock);
-      free(B); free(Bblock);
-      free(C); free(Cblock);
     }
-   
+cleanup:
+    free(A); free(Ablock);
+    free(B); free(Bblock);
+    free(C); free(Cblock);
+  
   } else { /* worker */
     for (run=0; run<NUM_RUNS; run++) {
       // init buffers
@@ -86,6 +101,11 @@ int main(int argc, char **argv) {
       // wait to start
       MPI_Barrier(MPI_COMM_WORLD);
       worker(N, A, B, C);
+  
+      // gather up all the blocks into C matrix
+      MPI_Gather(Cblock, (N * N)/p, MPI_DOUBLE,
+          C, (N * N)/p, MPI_DOUBLE,
+          ROOT, MPI_COMM_WORLD);
 
       // cleanup
       free(Ablock); 
@@ -95,66 +115,6 @@ int main(int argc, char **argv) {
   }
   
   MPI_Finalize(); // Required MPI termination call
-}
-
-double matmul_blocking(int N, double* A, double* B, double* C) {
-
-/*
-  This is the serial version of triangular matrix multiplication for CPSC424/524 Assignment #3.
-
-  Author: Andrew Sherman, Yale University
-
-  Date: 2/01/2016
-
-*/
-
-  int i, j, k;
-  int iA, iB, iC;
-  double wctime0, wctime1, cputime;
-
-  timing(&wctime0, &cputime);
-
-  MPI_Status status;
-
-  MPI_Init(&argc,&argv); // Required MPI initialization call
-
-  MPI_Comm_size(MPI_COMM_WORLD,&size); // Get no. of processes
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank); // Which process am I?
-
-  // calculate p
-  // initialize a block-row buffer (A), block-column buffer (B),
-  //  block-row buffer (C)
-  
-  /* If I am the master (rank 0) ... */
-  if (rank == 0) {
-    // do all the stuff from serial main!
-    // i.e. generate the random matrix itself
-    // barrier
-    // start timing
-    // 
-  }
-  else {
-    // clear (RANK)th C block-row buffer
-    // barrier
-    // wait for (RANK)th A block-row assignment
-    // 
-  }
-
-
-// This loop computes the matrix-matrix product
-//  iC = 0;
-//  for (i=0; i<N; i++) {
-//    iA = i*(i+1)/2; // initializes row pointer in A
-//    for (j=0; j<N; j++,iC++) {
-//      iB = j*(j+1)/2; // initializes column pointer in B
-//      C[iC] = 0.;
-//      for (k=0; k<=MIN(i,j); k++) C[iC] += A[iA+k] * B[iB+k]; // avoids using known-0 entries 
-//    }
-//  }
-
-  timing(&wctime1, &cputime);
-  MPI_Finalize(); // Required MPI termination call
-  return(wctime1 - wctime0);
 }
 
 void matrix_init(int N, double *A, double *B, double *C){
@@ -172,25 +132,48 @@ void matrix_init(int N, double *A, double *B, double *C){
   // This assumes A is stored by rows, and B is stored by columns. Other storage schemes are permitted
   for (i=0; i<sizeAB; i++) A[i] = ((double) rand()/(double)RAND_MAX);
   for (i=0; i<sizeAB; i++) B[i] = ((double) rand()/(double)RAND_MAX);
-  
-  MPI_Barrier(MPI_COMM_WORLD);
-
-  wctime = matmul(N, A, B, C);
-
-  printf ("  %5d    %9.4f\n", N, wctime);
-
 }
 
-void master(int N, double *A, double *B, double *C, double *Ablock, double *Bblock, double *Cblock){
+void master(int p, int N, double *A, double *B, double *C, double *Ablock, double *Bblock, double *Cblock){
   // TODO
   //
   //  (1) Assign a row block of A to each processor
   //  (2) Assign a column block of B to each processor
   //  (3) Run Worker
   //  (4) Collect results using gather
+  int i;
+  int buf_offset, buf_len, block_width;
+  struct rowblock data;
+
+  // how many rows does each processor get?
+  block_width = N / p;
+  
+  // assign row/column blocks
+  for(i = 0; i < p; i++){
+    buf_offset = start_index(N, i * block_width);
+    buf_len = start_index(N, (i + 1) * block_width) - buf_offset;
+
+    // assign A block
+    MPI_Send(&buf_offset, 1, MPI_INT, i, TAG, MPI_COMM_WORLD);
+    MPI_Send(&buf_len, 1, MPI_INT, i, TAG, MPI_COMM_WORLD);
+    MPI_Send(A, buf_len, MPI_DOUBLE, i, TAG, MPI_COMM_WORLD);
+    
+    // assign B block
+    MPI_Send(&buf_offset, 1, MPI_INT, i, TAG, MPI_COMM_WORLD);
+    MPI_Send(&buf_len, 1, MPI_INT, i, TAG, MPI_COMM_WORLD);
+    MPI_Send(B, buf_len, MPI_DOUBLE, i, TAG, MPI_COMM_WORLD);
+  }
+
+  // run as a worker
+  worker(ROOT, p, N, Ablock, Bblock, Cblock);
+
+  // gather up all the blocks into C matrix
+  MPI_Gather(Cblock, (N * N)/p, MPI_DOUBLE,
+      C, (N * N)/p, MPI_DOUBLE,
+      ROOT, MPI_COMM_WORLD);
 }
 
-void worker(int N, double *Ablock, double *Bblock, double *Cblock){
+void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *Cblock){
   // TODO
   //
   //  (1) Wait for row assignment
@@ -198,5 +181,40 @@ void worker(int N, double *Ablock, double *Bblock, double *Cblock){
   //      - Wait for column "j" assignment
   //      - Calculate j'th block of C
   //  (3) Send C block row to master
+  //
+  int round, block_idx, i, j, k, iA, iA_len, iB, iB_len iC;
+  int A_buf_offset, A_buf_len, block_width;
+  int B_buf_offset, B_buf_len;
+  MPI_Status status;
+  
+  block_width = N / p;
+
+  // get row assignment
+  MPI_Recv(&A_buf_offset, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
+  MPI_Recv(&A_buf_len, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
+  MPI_Recv(Ablock, buf_len, MPI_DOUBLE, ROOT, TAG, MPI_COMM_WORLD, &status);
+
+  for(round = 0; round < p; round++){
+    // which B column are we dealing with?
+    block_idx = (rank + round) % p;
+    
+    // receive a row
+    MPI_Recv(&B_buf_offset, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
+    MPI_Recv(&B_buf_len, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
+    MPI_Recv(Bblock, B_buf_len, MPI_DOUBLE, ROOT, TAG, MPI_COMM_WORLD, &status);
+
+    if(round == 0) MPI_Barrier(MPI_COMM_WORLD); // halt to prevent overlap
+
+    // Processing loop 
+    for(i = 0; i < block_width; i++){
+      iA = start_index(N, rank * block_width + i) - A_buf_offset;
+      for(j = 0; j < block_width; j++){
+        iB = start_index(N, block_idx * block_width + j) - B_buf_offset;
+        iC = (N * i) + j;
+        Cblock[iC] = 0.;
+        for (k = 0; k <= MIN(rank * block_width + i, block_idx * block_width + j); k++) Cblock[iC] += Ablock[iA+k] + Bblock[iB+k];
+      }
+    }
+  }
 }
 
