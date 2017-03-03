@@ -25,10 +25,7 @@ double matmul(int N, double* A, double* B, double* C) {
     for (j=0; j<N; j++,iC++) {
       iB = j*(j+1)/2; // initializes column pointer in B
       C[iC] = 0.;
-      for (k=0; k<=MIN(i,j); k++){
-        C[iC] += A[iA+k] * B[iB+k]; // avoids using known-0 entries
-        printf("\tMATMUL: A[%d + %d] * B[%d + %d] --> C[%d] = %f\n", iA, k, iB, k, iC, C[iC]);
-      }
+      for (k=0; k<=MIN(i,j); k++) C[iC] += A[iA+k] * B[iB+k]; // avoids using known-0 entries
     }
   }
 
