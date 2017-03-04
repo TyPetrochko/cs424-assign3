@@ -1,0 +1,9 @@
+TODO
+
+In addition to PRIMARY, there should be an extra SEND buffer and RECEIVE buffer
+
+nonblocking.c
+  - Make sure the initial assignments are done (use wait)
+  - Make sure while we're processing, we are ALWAYS sending one column and receiving one
+  - Right before processing, you should wait to receive PRIMARY
+
