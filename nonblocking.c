@@ -9,7 +9,7 @@
 #define ROOT 0 // root process id
 #define TAG 99
 #define VERIFY 1 // should we verify our results?
-#define NUM_RUNS 1
+#define NUM_RUNS 5
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define EVEN(rank) ((rank % 2) == 0)
 #define ODD(rank) ((rank % 2) == 1)
@@ -73,8 +73,8 @@ int main(int argc, char **argv) {
   int size, rank, sizeAB, sizeC, iA, iB, iC;
 
   // make sure to change NUM_RUNS along with this!
-  //int sizes[NUM_RUNS]={1000,2000,4000,8000,12000};
-  int sizes[NUM_RUNS]={100};
+  int sizes[NUM_RUNS]={1000,2000,4000,8000,12000};
+  //int sizes[NUM_RUNS]={1000};
   
   double wctime0, wctime1, cputime;
   
@@ -107,7 +107,7 @@ int main(int argc, char **argv) {
         C2 = (double *) calloc(N*N, sizeof(double));
         matmul(N, A, B, C2);
         for(i = 0; i < N * N; i++){
-          if(C[i] != C2[i]){
+          if((float)C[i] != (float)C2[i]){
             printf("ERROR: element number %d is %f but should be %f\n", i, C[i], C2[i]);
           }
         }
@@ -161,13 +161,13 @@ void matrix_init(int N, double **A, double **B, double **C){
   for (i=0; i<sizeAB; i++) (*A)[i] = ((double) rand()/(double)RAND_MAX);
   for (i=0; i<sizeAB; i++) (*B)[i] = ((double) rand()/(double)RAND_MAX);
 
-  printf("COLUMNS!\n");
-  for(int col = 0; col < N; col++){
-    for (int x = start_index(N, col); x < start_index(N, col + 1); x++){
-      printf("%f ", (*B)[x]);
-    }
-    printf("\n");
-  }
+  // printf("COLUMNS!\n");
+  // for(int col = 0; col < N; col++){
+  //   for (int x = start_index(N, col); x < start_index(N, col + 1); x++){
+  //     printf("%f ", (*B)[x]);
+  //   }
+  //   printf("\n");
+  // }
 }
 
 void master(int p, int N, double *A, double *B, double *C, double *Ablock, double *Bblock, double *B2block, double *Cblock){
@@ -247,9 +247,9 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
     }
 
     // Processing loop 
-    printf("Process %d on round %d has the following column:", rank, round);
-    for(int x = 0; x < B_buf_len; x++) printf(" %f", Bblock[x]);
-    printf("\n");
+    // printf("Process %d on round %d has the following column:", rank, round);
+    // for(int x = 0; x < B_buf_len; x++) printf(" %f", Bblock[x]);
+    // printf("\n");
     for(i = 0; i < block_width; i++){
       iA = start_index(N, rank * block_width + i) - A_buf_offset;
       for(j = 0; j < block_width; j++){
