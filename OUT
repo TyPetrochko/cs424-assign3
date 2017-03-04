@@ -1,0 +1,10 @@
+Matrix multiplication times:
+   N      TIME (secs)
+ -----   -------------
+Process 1 getting column assignment, offset = 125250, len = 375250
+	Master assigning process 0 column with: offset = 0, len = 125250
+	Master assigning process 1 column with: offset = 125250, len = 375250
+Process 0 getting column assignment, offset = 0, len = 125250
+   1000       0.1305
+Verifying correctness
+They all match up! Hooray!

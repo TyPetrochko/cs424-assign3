@@ -1,9 +1,17 @@
 TODO
 
-In addition to PRIMARY, there should be an extra SEND buffer and RECEIVE buffer
+In addition to PRIMARY, there should be a SECONDARY buffer
 
 nonblocking.c
-  - Make sure the initial assignments are done (use wait)
+  - Make sure the initial assignments are done (use non-async)
   - Make sure while we're processing, we are ALWAYS sending one column and receiving one
-  - Right before processing, you should wait to receive PRIMARY
-
+  - Do all the waits at the end, and all the send/recvs at the beginning
+  - Note we will need one recv request and two send requests
+  - Note on receiving, we don't know receiving size so use N * block_width
+  - Should look like
+    1. Process PRIMARY buffer
+    2. Wait to finish receiving in SECONDARY buffer
+    3. Start sending data in SECONDARY buffer (if round != last)
+    4. Wait to finish sending data in PRIMARY buffer
+    5. Switch primary/secondary buffers
+    6. Start receiving data in secondary buffer

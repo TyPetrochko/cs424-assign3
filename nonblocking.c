@@ -8,8 +8,8 @@
 
 #define ROOT 0 // root process id
 #define TAG 99
-#define VERIFY 0 // should we verify our results?
-#define NUM_RUNS 5
+#define VERIFY 1 // should we verify our results?
+#define NUM_RUNS 1
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define EVEN(rank) ((rank % 2) == 0)
 #define ODD(rank) ((rank % 2) == 1)
@@ -33,6 +33,9 @@ double buffer_init(int blockwidth, int N, double **Ablock, double **Bblock, doub
   *Bblock = (double *) calloc(blockwidth * N, sizeof(double));
   *B2block = (double *) calloc(blockwidth * N, sizeof(double));
   *Cblock = (double *) calloc(blockwidth * N, sizeof(double));
+
+  if(!Ablock || !Bblock || !Cblock || !B2block)
+    printf("Calloc failed!\n");
 }
 
 void matrix_init(int, double**, double**, double**);
@@ -60,7 +63,8 @@ int main(int argc, char **argv) {
   int size, rank, sizeAB, sizeC, iA, iB, iC;
 
   // make sure to change NUM_RUNS along with this!
-  int sizes[NUM_RUNS]={1000,2000,4000,8000,12000};
+  //int sizes[NUM_RUNS]={1000,2000,4000,8000,12000};
+  int sizes[NUM_RUNS]={1000};
   
   double wctime0, wctime1, cputime;
   
@@ -76,6 +80,7 @@ int main(int argc, char **argv) {
 
     // do all master runs
     for (run=0; run<NUM_RUNS; run++) {
+      MPI_Barrier(MPI_COMM_WORLD);
       N = sizes[run];
       matrix_init(N, &A, &B, &C);
       buffer_init(N / size, N, &Ablock, &Bblock, &B2block, &Cblock);
@@ -97,23 +102,24 @@ int main(int argc, char **argv) {
           }
         }
         printf("They all match up! Hooray!\n");
+        free(C2);
       }
-    }
 cleanup:
-    free(A); free(Ablock);
-    free(B); free(Bblock);
-    free(C); free(Cblock);
-    free(B2block);
-  
+      free(A); free(Ablock);
+      free(B); free(Bblock);
+      free(C); free(Cblock);
+      free(B2block);
+    }
   } else { /* worker */
     for (run=0; run<NUM_RUNS; run++) {
+      MPI_Barrier(MPI_COMM_WORLD);
       // init buffers
       N = sizes[run];
       buffer_init(N / size, N, &Ablock, &Bblock, &B2block, &Cblock);
       
       // wait to start
       worker(rank, size, N, Ablock, Bblock, B2block, Cblock);
-  
+      
       // gather up all the blocks into C matrix
       MPI_Gather(Cblock, (N * N)/size, MPI_DOUBLE,
           C, (N * N)/size, MPI_DOUBLE,
@@ -153,27 +159,27 @@ void master(int p, int N, double *A, double *B, double *C, double *Ablock, doubl
 
   // how many rows does each processor get?
   block_width = N / p;
-  
+ 
   // assign row/column blocks
   for(i = 0; i < p; i++){
     buf_offset = start_index(N, i * block_width);
     buf_len = start_index(N, (i + 1) * block_width) - buf_offset;
 
-
     // assign A block
-    MPI_Isend(&buf_offset, 1, MPI_INT, i, TAG, MPI_COMM_WORLD, &req);
-    MPI_ISend(&buf_len, 1, MPI_INT, i, TAG, MPI_COMM_WORLD, &req);
-    MPI_ISend(A + buf_offset, buf_len, MPI_DOUBLE, i, TAG, MPI_COMM_WORLD, &req);
+    MPI_Send(&buf_offset, 1, MPI_INT, i, TAG, MPI_COMM_WORLD);
+    MPI_Send(&buf_len, 1, MPI_INT, i, TAG, MPI_COMM_WORLD);
+    MPI_Send(A + buf_offset, buf_len, MPI_DOUBLE, i, TAG, MPI_COMM_WORLD);
     
     // assign B block
-    MPI_ISend(&buf_offset, 1, MPI_INT, i, TAG, MPI_COMM_WORLD, &req);
-    MPI_ISend(&buf_len, 1, MPI_INT, i, TAG, MPI_COMM_WORLD, &req);
-    MPI_ISend(B + buf_offset, buf_len, MPI_DOUBLE, i, TAG, MPI_COMM_WORLD, &req);
+    printf("\tMaster assigning process %d column with: offset = %d, len = %d\n", i, buf_offset, buf_len);
+    MPI_Send(&buf_offset, 1, MPI_INT, i, TAG, MPI_COMM_WORLD);
+    MPI_Send(&buf_len, 1, MPI_INT, i, TAG, MPI_COMM_WORLD);
+    MPI_Send(B + buf_offset, buf_len, MPI_DOUBLE, i, TAG, MPI_COMM_WORLD);
   }
   
   // run as a worker
   worker(ROOT, p, N, Ablock, Bblock, B2block, Cblock);
-
+  
   // gather up all the blocks into C matrix
   MPI_Gather(Cblock, (N * N)/p, MPI_DOUBLE,
       C, (N * N)/p, MPI_DOUBLE,
@@ -184,65 +190,44 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
   int round, next, block_idx, i, j, k, iA, iA_len, iB, iB_len, iC;
   int A_buf_offset, A_buf_len, block_width;
   int B_buf_offset, B_buf_len;
-  int B2_buf_offset, B2_buf_len;
+  int B2_buf_offset, B2_buf_len, tmp_offset, tmp_len;
   double *tmp; // for buffer swapping
   MPI_Status status;
-  MPI_Request send1, send2, recv1, recv2, tmp_req; // primary and secondary requests
+  MPI_Request send1, send2, recv, tmp_req; // primary and secondary requests
   
   block_width = N / p;
 
-  // get row assignment (wait)
-  MPI_Irecv(&A_buf_offset, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status, &recv1);
-  MPI_Wait(&recv1, &status);
-  MPI_IRecv(&A_buf_len, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status &recv1);
-  MPI_Wait(&recv1, &status);
-  MPI_IRecv(Ablock, A_buf_len, MPI_DOUBLE, ROOT, TAG, MPI_COMM_WORLD, &status, &recv1);
-  MPI_Wait(&recv1, &status);
+  // get row assignment
+  MPI_Recv(&A_buf_offset, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
+  MPI_Recv(&A_buf_len, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
+  MPI_Recv(Ablock, A_buf_len, MPI_DOUBLE, ROOT, TAG, MPI_COMM_WORLD, &status);
+  
+  // get initial row
+  MPI_Recv(&B_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
+  MPI_Recv(&B_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
+  printf("Process %d getting column assignment, offset = %d, len = %d\n", rank, B_buf_offset, B_buf_len);
+  MPI_Recv(Bblock, B_buf_len, MPI_DOUBLE, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
+
+  // wait to start
+  MPI_Barrier(MPI_COMM_WORLD);
 
   for(round = 0; round < p; round++){
     // which B column are we dealing with?
     block_idx = (rank + round) % p;
-    
-    if(EVEN(rank) || round == 0){
-      // receive a row
-      MPI_Irecv(&B_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status, &recv1);
-      MPI_IRecv(&B_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status, &recv1);
-      MPI_IRecv(Bblock, B_buf_len, MPI_DOUBLE, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status, &recv1);
 
-      // anticipate next row coming in
-      MPI_Irecv(&B2_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status, &recv2);
-      MPI_IRecv(&B2_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status, &recv2);
-      MPI_IRecv(B2block, B2_buf_len, MPI_DOUBLE, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status, &recv2);
-    } else if (ODD(rank) && round == 0) {
-      // receive initial row
-      MPI_Recv(&B_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
-      MPI_Recv(&B_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
-      MPI_Recv(Bblock, B_buf_len, MPI_DOUBLE, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
-    } else if (ODD(rank)) {
-      // switch the buffers since we already have it!
-      tmp = B2block;
-      tmp_req = recv2;
-      
-      B2block = Bblock;
-      recv2 = recv1;
+    if(round == 0 && round != p - 1){
+      // TODO start sending the data we have
+      // and start receiving next data
+      next = (rank + p - 1) % p;
+      MPI_Isend(&B_buf_offset, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send1);
+      MPI_Isend(&B_buf_len, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send1);
+      MPI_Isend(Bblock, B_buf_len, MPI_DOUBLE, next, TAG, MPI_COMM_WORLD, &send1);
 
-      B_buf_offset = B2_buf_offset;
-      B_buf_len = B2_buf_len;
-      
-      Bblock = tmp;
-      recv1 = tmp_req;
-    } else {
-      printf("Rank is neither odd nor even apparently\n.");
-      exit(-1);
+      MPI_Irecv(&B2_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
+      MPI_Irecv(&B2_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
+      MPI_Irecv(B2block, block_width * N, MPI_DOUBLE, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
     }
-    
-    if(ODD(rank) && round != p - 1){
-      // receive a row
-      MPI_Irecv(&B2_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status, &recv2);
-      MPI_IRecv(&B2_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status, &recv2);
-      MPI_IRecv(B2block, B2_buf_len, MPI_DOUBLE, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status, &recv2);
-    }
-    
+
     // Processing loop 
     for(i = 0; i < block_width; i++){
       iA = start_index(N, rank * block_width + i) - A_buf_offset;
@@ -257,14 +242,39 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
       }
     }
 
-    // pass data to the left
     if(round != p - 1){
+      // finish receiving next column
       next = (rank + p - 1) % p;
+      MPI_Wait(&recv, &status);
 
-      // if we're an odd processor, we'll receive first (MUST be odd ones)
-      MPI_Send(&B_buf_offset, 1, MPI_INT, next, TAG, MPI_COMM_WORLD);
-      MPI_Send(&B_buf_len, 1, MPI_INT, next, TAG, MPI_COMM_WORLD);
-      MPI_Send(Bblock, B_buf_len, MPI_DOUBLE, next, TAG, MPI_COMM_WORLD);
+      MPI_Isend(&B2_buf_offset, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send2);
+      MPI_Isend(&B2_buf_len, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send2);
+      MPI_Isend(B2block, B_buf_len, MPI_DOUBLE, next, TAG, MPI_COMM_WORLD, &send2);
+      
+      MPI_Wait(&send1, &status);
+
+      // now switch buffers and requests
+      tmp = B2block;
+      tmp_req = send2;
+      tmp_offset = B2_buf_offset;
+      tmp_len = B2_buf_len;
+
+      B2block = Bblock;
+      send2 = send1;
+      B2_buf_offset = B_buf_offset;
+      B2_buf_len = B_buf_len;
+
+      B_buf_offset = tmp_offset;
+      B_buf_len = tmp_len;
+      Bblock = tmp;
+      send1 = tmp_req;
+
+      // now start receiving next round
+      if(round != p - 2){
+        MPI_Irecv(&B2_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
+        MPI_Irecv(&B2_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
+        MPI_Irecv(B2block, block_width * N, MPI_DOUBLE, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
+      }
     }
   }
 }
