@@ -1,10 +1,38 @@
 Matrix multiplication times:
    N      TIME (secs)
  -----   -------------
-Process 1 getting column assignment, offset = 125250, len = 375250
-	Master assigning process 0 column with: offset = 0, len = 125250
-	Master assigning process 1 column with: offset = 125250, len = 375250
-Process 0 getting column assignment, offset = 0, len = 125250
-   1000       0.1305
+      4       0.0003
+
+Process 0 on round 0 has the following column: 0.367737
+Process 0 on round 1 has the following column: 0.222367 0.219657
+Process 0 on round 2 has the following column: 0.201738 0.044116 0.000000
+Process 0 on round 3 has the following column: 0.647654 0.149464 0.029668 0.000000
+
+Process 1 on round 0 has the following column: 0.222367 0.219657
+Process 1 on round 1 has the following column: 0.201738 0.044116 0.343920
+Process 1 on round 2 has the following column: 0.647654 0.149464 0.029668 0.000000
+Process 1 on round 3 has the following column: 0.367737
+
+Process 2 on round 0 has the following column: 0.201738 0.044116 0.343920
+Process 2 on round 1 has the following column: 0.647654 0.149464 0.029668 0.878494
+Process 2 on round 2 has the following column: 0.367737
+Process 2 on round 3 has the following column: 0.222367 0.149464
+
+Process 3 on round 0 has the following column: 0.647654 0.149464 0.029668 0.878494
+Process 3 on round 1 has the following column: 0.367737
+Process 3 on round 2 has the following column: 0.222367 0.149464
+Process 3 on round 3 has the following column: 0.201738 0.044116 0.000000
+
+COLUMNS!
+0.367737 
+0.222367 0.219657 
+0.201738 0.044116 0.343920 
+0.647654 0.149464 0.029668 0.878494 
+
+
 Verifying correctness
+
+ERROR: element number 9 is 0.056426 but should be 0.060773
+ERROR: element number 13 is 0.068437 but should be 0.071789
+ERROR: element number 14 is 0.057719 but should be 0.168129
 They all match up! Hooray!
