@@ -8,7 +8,7 @@
 
 #define ROOT 0 // root process id
 #define TAG 99
-#define VERIFY 1 // should we verify our results?
+#define VERIFY 0 // should we verify our results?
 #define NUM_RUNS 5
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define EVEN(rank) ((rank % 2) == 0)
@@ -73,7 +73,7 @@ int main(int argc, char **argv) {
   int size, rank, sizeAB, sizeC, iA, iB, iC;
 
   // make sure to change NUM_RUNS along with this!
-  int sizes[NUM_RUNS]={1000,2000,4000,8000,12000};
+  int sizes[NUM_RUNS]={1000,12000,4000,8000,12000};
   //int sizes[NUM_RUNS]={1000};
   
   double wctime0, wctime1, cputime;
@@ -271,12 +271,14 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
       MPI_Wait(&recv, &status);
       // printf("Process %d received a column from %d with length %d, offset %d\n", rank, rank + 1 % p, B2_buf_len, B2_buf_offset);
 
-      MPI_Isend(&B2_buf_offset, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send2);
-      MPI_Isend(&B2_buf_len, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send2);
-      MPI_Isend(B2block, N * block_width, MPI_DOUBLE, next, TAG, MPI_COMM_WORLD, &send2);
-      // printf("Process %d sent %d a column of buf length %d, offset %d\n", rank, next, B2_buf_len, B2_buf_offset);
-      
-      MPI_Wait(&send1, &status);
+      if(round != p - 2){
+        MPI_Isend(&B2_buf_offset, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send2);
+        MPI_Isend(&B2_buf_len, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send2);
+        MPI_Isend(B2block, N * block_width, MPI_DOUBLE, next, TAG, MPI_COMM_WORLD, &send2);
+        // printf("Process %d sent %d a column of buf length %d, offset %d\n", rank, next, B2_buf_len, B2_buf_offset);
+        
+        MPI_Wait(&send1, &status);
+      }
 
       // now switch buffers and requests
       tmp = B2block;
