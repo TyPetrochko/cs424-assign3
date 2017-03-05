@@ -1,5 +1,7 @@
 TODO
 
+cleanup is only getting called once in bocking.c!!
+
 In addition to PRIMARY, there should be a SECONDARY buffer
 
 nonblocking.c

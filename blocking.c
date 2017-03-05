@@ -72,7 +72,8 @@ int main(int argc, char **argv) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank); // Which process am I?
   
   if (rank == ROOT) { /* master */
-    printf("Matrix multiplication times:\n   N      TIME (secs)\n -----   -------------\n");
+    printf("Timing breakdowns:\n");
+    printf("Matrix multiplication times:\n   N      TIME (secs)\n\tP\tcomp\tcomm\n -----   -------------\n");
 
     // do all master runs
     for (run=0; run<NUM_RUNS; run++) {
@@ -185,25 +186,33 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
   int B_buf_offset, B_buf_len;
   int B2_buf_offset, B2_buf_len;
   double *tmp; // for buffer swapping
+  double wctime0, wctime1, cputime, comp_time, comm_time;
   MPI_Status status;
   
   block_width = N / p;
+  comp_time = 0.0;
+  comm_time = 0.0;
 
   // get row assignment
+  timing(&wctime0, &cputime);
   MPI_Recv(&A_buf_offset, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(&A_buf_len, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(Ablock, A_buf_len, MPI_DOUBLE, ROOT, TAG, MPI_COMM_WORLD, &status);
+  timing(&wctime1, &cputime);
+  comm_time += wctime1 - wctime0;
 
   for(round = 0; round < p; round++){
     // which B column are we dealing with?
     block_idx = (rank + round) % p;
-    
-    
+
     if(EVEN(rank) || round == 0){
       // receive a row
+      timing(&wctime0, &cputime);
       MPI_Recv(&B_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
       MPI_Recv(&B_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
       MPI_Recv(Bblock, B_buf_len, MPI_DOUBLE, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
+      timing(&wctime1, &cputime);
+      comm_time += wctime1 - wctime0;
     } else {
       // switch the buffers since we already have it!
       tmp = B2block;
@@ -217,14 +226,18 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
     
     if(ODD(rank) && round != p - 1){
       // receive a row
+      timing(&wctime0, &cputime);
       MPI_Recv(&B2_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
       MPI_Recv(&B2_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
       MPI_Recv(B2block, B2_buf_len, MPI_DOUBLE, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
+      timing(&wctime1, &cputime);
+      comm_time += wctime1 - wctime0;
     }
     
     // if(round == 0) MPI_Barrier(MPI_COMM_WORLD); // halt to prevent overlap
 
     // Processing loop 
+    timing(&wctime0, &cputime);
     for(i = 0; i < block_width; i++){
       iA = start_index(N, rank * block_width + i) - A_buf_offset;
       for(j = 0; j < block_width; j++){
@@ -237,16 +250,22 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
         }
       }
     }
+    timing(&wctime1, &cputime);
+    comp_time += wctime1 - wctime0;
 
     // pass data to the left
     if(round != p - 1){
       next = (rank + p - 1) % p;
 
       // if we're an odd processor, we'll receive first (MUST be odd ones)
+      timing(&wctime0, &cputime);
       MPI_Send(&B_buf_offset, 1, MPI_INT, next, TAG, MPI_COMM_WORLD);
       MPI_Send(&B_buf_len, 1, MPI_INT, next, TAG, MPI_COMM_WORLD);
       MPI_Send(Bblock, B_buf_len, MPI_DOUBLE, next, TAG, MPI_COMM_WORLD);
+      timing(&wctime1, &cputime);
+      comm_time += wctime1 - wctime0;
     }
   }
+  printf("\t%d\t%f\t%f\n", rank, comp_time, comm_time);
 }
 

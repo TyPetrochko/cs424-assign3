@@ -210,12 +210,16 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
   int B_buf_offset, B_buf_len;
   int B2_buf_offset, B2_buf_len, tmp_offset, tmp_len;
   double *tmp; // for buffer swapping
+  double wctime0, wctime1, cputime, comp_time, comm_time;
   MPI_Status status;
   MPI_Request send1, send2, recv, tmp_req; // primary and secondary requests
   
   block_width = N / p;
+  comp_time = 0.0;
+  comm_time = 0.0;
 
   // get row assignment
+  timing(&wctime0, &cputime);
   MPI_Recv(&A_buf_offset, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(&A_buf_len, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(Ablock, A_buf_len, MPI_DOUBLE, ROOT, TAG, MPI_COMM_WORLD, &status);
@@ -223,11 +227,12 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
   // get initial row
   MPI_Recv(&B_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(&B_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
-  // printf("Process %d getting column assignment, offset = %d, len = %d\n", rank, B_buf_offset, B_buf_len);
   MPI_Recv(Bblock, B_buf_len, MPI_DOUBLE, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
 
   // wait to start
   MPI_Barrier(MPI_COMM_WORLD);
+  timing(&wctime1, &cputime);
+  comm_time += wctime1 - wctime0;
 
   for(round = 0; round < p; round++){
     // which B column are we dealing with?
@@ -236,6 +241,7 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
     if(round == 0 && round != p - 1){
       // TODO start sending the data we have
       // and start receiving next data
+      timing(&wctime0, &cputime);
       next = (rank + p - 1) % p;
       MPI_Isend(&B_buf_offset, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send1);
       MPI_Isend(&B_buf_len, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send1);
@@ -244,12 +250,15 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
       MPI_Irecv(&B2_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
       MPI_Irecv(&B2_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
       MPI_Irecv(B2block, block_width * N, MPI_DOUBLE, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
+      timing(&wctime1, &cputime);
+      comm_time += wctime1 - wctime0;
     }
 
     // Processing loop 
     // printf("Process %d on round %d has the following column:", rank, round);
     // for(int x = 0; x < B_buf_len; x++) printf(" %f", Bblock[x]);
     // printf("\n");
+    timing(&wctime0, &cputime);
     for(i = 0; i < block_width; i++){
       iA = start_index(N, rank * block_width + i) - A_buf_offset;
       for(j = 0; j < block_width; j++){
@@ -264,21 +273,25 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
         }
       }
     }
+    timing(&wctime1, &cputime);
+    comp_time += wctime1 - wctime0;
 
     if(round != p - 1){
       // finish receiving next column
       next = (rank + p - 1) % p;
+      timing(&wctime0, &cputime);
       MPI_Wait(&recv, &status);
       // printf("Process %d received a column from %d with length %d, offset %d\n", rank, rank + 1 % p, B2_buf_len, B2_buf_offset);
-
+      
       if(round != p - 2){
         MPI_Isend(&B2_buf_offset, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send2);
         MPI_Isend(&B2_buf_len, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send2);
         MPI_Isend(B2block, N * block_width, MPI_DOUBLE, next, TAG, MPI_COMM_WORLD, &send2);
         // printf("Process %d sent %d a column of buf length %d, offset %d\n", rank, next, B2_buf_len, B2_buf_offset);
-        
         MPI_Wait(&send1, &status);
       }
+      timing(&wctime1, &cputime);
+      comm_time += wctime1 - wctime0;
 
       // now switch buffers and requests
       tmp = B2block;
@@ -298,11 +311,15 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
 
       // now start receiving next round
       if(round != p - 2){
+        timing(&wctime0, &cputime);
         MPI_Irecv(&B2_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
         MPI_Irecv(&B2_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
         MPI_Irecv(B2block, block_width * N, MPI_DOUBLE, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
+        timing(&wctime1, &cputime);
+        comm_time += wctime1 - wctime0;
       }
     }
   }
+  printf("\t%d\t%f\t%f\n", rank, comp_time, comm_time);
 }
 
