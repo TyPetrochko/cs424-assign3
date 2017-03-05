@@ -17,3 +17,23 @@ nonblocking.c
     4. Wait to finish sending data in PRIMARY buffer
     5. Switch primary/secondary buffers
     6. Start receiving data in secondary buffer
+
+
+loadbalancing.c
+  - master:
+
+    elts_per_proc = (N * (N + 1)) / p
+    total elts = (N * (N + 1))
+    p1 = p2 = 0 // keep track of rows
+    proc = 0
+    while(p2 < N)
+      if start_index(p2) - start_index(p1) > elts_per_proc
+        send rows p1 through (p2 - 1) to proc, with len, offset, etc.
+        send p1 and (p2 - 1) to proc
+        proc++
+        p1 = p2
+      else p2++
+
+    send rows p1 through (p2 - 1) to proc
+  
+  

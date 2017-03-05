@@ -3,7 +3,10 @@ CC = icc
 MPICC = mpicc
 CFLAGS = -g -O3 -xHost -fno-alias -std=c99 -I$(TIMINGDIR)
 
-all: blocking serial nonblocking
+all: blocking serial nonblocking loadbalancing
+
+loadbalancing: loadbalancing.o matmul.o $(TIMINGDIR)/timing.o
+	$(MPICC) -o $@ $(CFLAGS) $^
 
 nonblocking: nonblocking.o matmul.o $(TIMINGDIR)/timing.o
 	$(MPICC) -o $@ $(CFLAGS) $^

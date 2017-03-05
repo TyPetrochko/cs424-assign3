@@ -39,10 +39,10 @@ void debug_err(int rank, int error_code){
 }
 
 double buffer_init(int blockwidth, int N, double **Ablock, double **Bblock, double **B2block, double **Cblock){
-  *Ablock = (double *) calloc(blockwidth * N, sizeof(double)); /* there is some extra space here */
+  *Ablock = (double *) calloc(N * N, sizeof(double)); /* there is some extra space here */
   *Bblock = (double *) calloc(blockwidth * N, sizeof(double));
   *B2block = (double *) calloc(blockwidth * N, sizeof(double));
-  *Cblock = (double *) calloc(blockwidth * N, sizeof(double));
+  *Cblock = (double *) calloc(N * N, sizeof(double));
 
   if(!Ablock || !Bblock || !Cblock || !B2block)
     printf("Calloc failed!\n");
@@ -173,23 +173,66 @@ void matrix_init(int N, double **A, double **B, double **C){
 
 void master(int p, int N, double *A, double *B, double *C, double *Ablock, double *Bblock, double *B2block, double *Cblock){
   int i;
+  int p1, p2, proc;
   int buf_offset, buf_len, block_width;
   MPI_Request req;
 
   // how many rows does each processor get?
   block_width = N / p;
- 
-  // assign row/column blocks
+
+  // row assignments of A
+  int elts_per_proc = (N * (N + 1)) / (p * 2);
+  printf("Elts per proc = %d\n", elts_per_proc);
+  int t;
+  p1 = p2 = proc = 0;
+
+  while (p2 < N) {
+    //printf("Should we send proc %d rows %d through %d? Comes out to %d elts\n", proc, p1, p2 - 1, start_index(N, p2) - start_index(N, p1));
+    if(start_index(N, p2) - start_index(N, p1) > elts_per_proc){
+      buf_offset = start_index(N, p1);
+      buf_len = start_index(N, p2) - buf_offset;
+      t = p2 - 1; /* dirty workaround */
+      
+      MPI_Isend(&p1, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
+      MPI_Isend(&t, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
+      
+      MPI_Isend(&buf_offset, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
+      MPI_Isend(&buf_len, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
+      
+      MPI_Isend(A + buf_offset, buf_len, MPI_DOUBLE, proc, TAG, MPI_COMM_WORLD, &req);
+      printf("Sending process %d rows %d through %d\n", proc, p1, p2 - 1);
+      p1 = p2;
+      proc++;
+    } else p2++;
+  }
+
+  /* SEND REMAINDER */
+  buf_offset = start_index(N, p1);
+  buf_len = start_index(N, p2) - buf_offset;
+  t = p2 - 1; /* dirty workaround */
+  
+  MPI_Isend(&p1, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
+  MPI_Isend(&t, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
+  
+  MPI_Isend(&buf_offset, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
+  MPI_Isend(&buf_len, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
+  
+  MPI_Isend(A + buf_offset, buf_len, MPI_DOUBLE, proc, TAG, MPI_COMM_WORLD, &req);
+  printf("Sending process %d rows %d through %d\n", proc, p1, p2 - 1);
+  proc++;
+
+  if (p != proc)
+    printf("Only sent rows to %d of %d processors\n", proc, p);
+  else
+    printf("All processors received a row block!\n");
+  
+  /* DONE SENDING REMAINDER */
+
+  // assign column blocks
   for(i = 0; i < p; i++){
     buf_offset = start_index(N, i * block_width);
     buf_len = start_index(N, (i + 1) * block_width) - buf_offset;
-
-    // assign A block
-    MPI_Send(&buf_offset, 1, MPI_INT, i, TAG, MPI_COMM_WORLD);
-    MPI_Send(&buf_len, 1, MPI_INT, i, TAG, MPI_COMM_WORLD);
-    MPI_Send(A + buf_offset, buf_len, MPI_DOUBLE, i, TAG, MPI_COMM_WORLD);
     
-    // assign B block
     MPI_Send(&buf_offset, 1, MPI_INT, i, TAG, MPI_COMM_WORLD);
     MPI_Send(&buf_len, 1, MPI_INT, i, TAG, MPI_COMM_WORLD);
     MPI_Send(B + buf_offset, buf_len, MPI_DOUBLE, i, TAG, MPI_COMM_WORLD);
@@ -205,7 +248,7 @@ void master(int p, int N, double *A, double *B, double *C, double *Ablock, doubl
 }
 
 void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2block, double *Cblock){
-  int round, next, block_idx, i, j, k, iA, iA_len, iB, iB_len, iC;
+  int round, next, block_idx, i, j, k, iA, iA_len, iB, iB_len, iC, start_row, end_row;
   int A_buf_offset, A_buf_len, block_width;
   int B_buf_offset, B_buf_len;
   int B2_buf_offset, B2_buf_len, tmp_offset, tmp_len;
@@ -220,11 +263,13 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
 
   // get row assignment
   timing(&wctime0, &cputime);
+  MPI_Recv(&start_row, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
+  MPI_Recv(&end_row, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(&A_buf_offset, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(&A_buf_len, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(Ablock, A_buf_len, MPI_DOUBLE, ROOT, TAG, MPI_COMM_WORLD, &status);
   
-  // get initial row
+  // get initial column
   MPI_Recv(&B_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(&B_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(Bblock, B_buf_len, MPI_DOUBLE, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
