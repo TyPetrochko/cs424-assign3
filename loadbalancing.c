@@ -8,8 +8,8 @@
 
 #define ROOT 0 // root process id
 #define TAG 99
-#define VERIFY 0 // should we verify our results?
-#define NUM_RUNS 5
+#define VERIFY 1 // should we verify our results?
+#define NUM_RUNS 1
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define EVEN(rank) ((rank % 2) == 0)
 #define ODD(rank) ((rank % 2) == 1)
@@ -52,7 +52,8 @@ void matrix_init(int, double**, double**, double**);
 
 void master(int, int, double*, double*, double*, double*, double*, double*, double*); /* do master work and report time */
 
-void worker(int, int, int, double*, double*, double*, double*); /* do worker work, but do not send to master */
+// return the number of rows sent
+int worker(int, int, int, double*, double*, double*, double*); /* do worker work, but do not send to master */
 
 double matmul(int, double*, double*, double*);
 
@@ -67,14 +68,14 @@ int main(int argc, char **argv) {
 
   */
 
-  int N, i, j, k, run;
+  int N, i, j, k, run, rows;
   double *A, *B, *C, *C2; /* master buffers */
   double *Ablock, *Bblock, *B2block, *Cblock; /* worker buffers */
   int size, rank, sizeAB, sizeC, iA, iB, iC;
 
   // make sure to change NUM_RUNS along with this!
-  int sizes[NUM_RUNS]={1000,2000,4000,8000,12000};
-  //int sizes[NUM_RUNS]={1000};
+  // int sizes[NUM_RUNS]={1000,2000,4000,8000,12000};
+  int sizes[NUM_RUNS]={1000};
   
   double wctime0, wctime1, cputime;
   
@@ -128,13 +129,11 @@ cleanup:
       N = sizes[run];
       buffer_init(N / size, N, &Ablock, &Bblock, &B2block, &Cblock);
       
-      // wait to start
-      worker(rank, size, N, Ablock, Bblock, B2block, Cblock);
+      rows = worker(rank, size, N, Ablock, Bblock, B2block, Cblock);
       
       // gather up all the blocks into C matrix
-      MPI_Gather(Cblock, (N * N)/size, MPI_DOUBLE,
-          C, (N * N)/size, MPI_DOUBLE,
-          ROOT, MPI_COMM_WORLD);
+      MPI_Send(&rows, 1, MPI_INT, 0, TAG, MPI_COMM_WORLD);
+      MPI_Send(Cblock, N * rows, MPI_DOUBLE, 0, TAG, MPI_COMM_WORLD);
 
       // cleanup
       free(Ablock); 
@@ -169,38 +168,43 @@ void matrix_init(int N, double **A, double **B, double **C){
   //   }
   //   printf("\n");
   // }
+  // 
+  // printf("ROWS!\n");
+  // for(int row = 0; row < N; row++){
+  //   for (int x = start_index(N, row); x < start_index(N, row + 1); x++){
+  //     printf("%f ", (*A)[x]);
+  //   }
+  //   printf("\n");
+  // }
 }
 
 void master(int p, int N, double *A, double *B, double *C, double *Ablock, double *Bblock, double *B2block, double *Cblock){
   int i;
-  int p1, p2, proc;
+  int p1, p2, proc, rows;
   int buf_offset, buf_len, block_width;
   MPI_Request req;
+  MPI_Status status;
 
   // how many rows does each processor get?
   block_width = N / p;
 
   // row assignments of A
   int elts_per_proc = (N * (N + 1)) / (p * 2);
-  printf("Elts per proc = %d\n", elts_per_proc);
-  int t;
   p1 = p2 = proc = 0;
-
   while (p2 < N) {
     //printf("Should we send proc %d rows %d through %d? Comes out to %d elts\n", proc, p1, p2 - 1, start_index(N, p2) - start_index(N, p1));
     if(start_index(N, p2) - start_index(N, p1) > elts_per_proc){
       buf_offset = start_index(N, p1);
       buf_len = start_index(N, p2) - buf_offset;
-      t = p2 - 1; /* dirty workaround */
+
+      MPI_Send(&p1, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD);
+      MPI_Send(&p2, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD);
       
-      MPI_Isend(&p1, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
-      MPI_Isend(&t, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
+      MPI_Send(&buf_offset, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD);
+      MPI_Send(&buf_len, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD);
       
-      MPI_Isend(&buf_offset, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
-      MPI_Isend(&buf_len, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
-      
-      MPI_Isend(A + buf_offset, buf_len, MPI_DOUBLE, proc, TAG, MPI_COMM_WORLD, &req);
-      printf("Sending process %d rows %d through %d\n", proc, p1, p2 - 1);
+      MPI_Send(A + buf_offset, buf_len, MPI_DOUBLE, proc, TAG, MPI_COMM_WORLD);
+      // printf("Sending process %d rows %d through %d (%d elements), p1 and p2 are %d %d\n", proc, p1, p2 - 1, buf_len, p1, p2);
       p1 = p2;
       proc++;
     } else p2++;
@@ -209,22 +213,35 @@ void master(int p, int N, double *A, double *B, double *C, double *Ablock, doubl
   /* SEND REMAINDER */
   buf_offset = start_index(N, p1);
   buf_len = start_index(N, p2) - buf_offset;
-  t = p2 - 1; /* dirty workaround */
   
-  MPI_Isend(&p1, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
-  MPI_Isend(&t, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
+  MPI_Send(&p1, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD);
+  MPI_Send(&p2, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD);
   
-  MPI_Isend(&buf_offset, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
-  MPI_Isend(&buf_len, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD, &req);
+  MPI_Send(&buf_offset, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD);
+  MPI_Send(&buf_len, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD);
   
-  MPI_Isend(A + buf_offset, buf_len, MPI_DOUBLE, proc, TAG, MPI_COMM_WORLD, &req);
-  printf("Sending process %d rows %d through %d\n", proc, p1, p2 - 1);
+  MPI_Send(A + buf_offset, buf_len, MPI_DOUBLE, proc, TAG, MPI_COMM_WORLD);
+  printf("Sending process %d rows %d through %d (%d elements), p1 and p2 are %d %d\n", proc, p1, p2 - 1, buf_len, p1, p2);
   proc++;
 
-  if (p != proc)
-    printf("Only sent rows to %d of %d processors\n", proc, p);
+  if (p != proc){
+    // printf("Only sent rows to %d of %d processors\n", proc, p);
+
+    // signal to stop
+    p1 = p2 = buf_offset = buf_len = 0;
+    while(proc < p){
+      MPI_Send(&p1, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD);
+      MPI_Send(&p2, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD);
+      
+      MPI_Send(&buf_offset, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD);
+      MPI_Send(&buf_len, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD);
+      
+      MPI_Send(A + buf_offset, buf_len, MPI_DOUBLE, proc, TAG, MPI_COMM_WORLD);
+      proc++;
+    }
+  }
   else
-    printf("All processors received a row block!\n");
+    // printf("All processors received a row block!\n");
   
   /* DONE SENDING REMAINDER */
 
@@ -239,16 +256,23 @@ void master(int p, int N, double *A, double *B, double *C, double *Ablock, doubl
   }
   
   // run as a worker
-  worker(ROOT, p, N, Ablock, Bblock, B2block, Cblock);
+  rows = worker(ROOT, p, N, Ablock, Bblock, B2block, C); // copy directly into C
+
+  int rows_copied = rows;
+  for(i = 1; i < p; i++){
+    MPI_Recv(&rows, 1, MPI_INT, i, TAG, MPI_COMM_WORLD, &status);
+    MPI_Recv(C + rows_copied * N, rows * N, MPI_DOUBLE, i, TAG, MPI_COMM_WORLD, &status);
+    rows_copied += rows;
+  }
   
   // gather up all the blocks into C matrix
-  MPI_Gather(Cblock, (N * N)/p, MPI_DOUBLE,
-      C, (N * N)/p, MPI_DOUBLE,
-      ROOT, MPI_COMM_WORLD);
+  // MPI_Gather(Cblock, (N * N)/p, MPI_DOUBLE,
+  //     C, (N * N)/p, MPI_DOUBLE,
+  //     ROOT, MPI_COMM_WORLD);
 }
 
-void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2block, double *Cblock){
-  int round, next, block_idx, i, j, k, iA, iA_len, iB, iB_len, iC, start_row, end_row;
+int worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2block, double *Cblock){
+  int round, next, block_idx, i, j, k, iA, iA_len, iB, iB_len, iC, p1, p2;
   int A_buf_offset, A_buf_len, block_width;
   int B_buf_offset, B_buf_len;
   int B2_buf_offset, B2_buf_len, tmp_offset, tmp_len;
@@ -263,16 +287,23 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
 
   // get row assignment
   timing(&wctime0, &cputime);
-  MPI_Recv(&start_row, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
-  MPI_Recv(&end_row, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
+  MPI_Recv(&p1, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
+  MPI_Recv(&p2, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(&A_buf_offset, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(&A_buf_len, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(Ablock, A_buf_len, MPI_DOUBLE, ROOT, TAG, MPI_COMM_WORLD, &status);
   
+  // printf("Data that processor rank %d has (%d elements, p1 and p2 %d %d): \n", rank, A_buf_len, p1, p2);
+  // for(int x = 0; x < A_buf_len; x++){
+  //   printf("%f ", Ablock[x]);
+  // }
+  // printf("\n");
+
+  
   // get initial column
-  MPI_Recv(&B_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
-  MPI_Recv(&B_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
-  MPI_Recv(Bblock, B_buf_len, MPI_DOUBLE, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &status);
+  MPI_Irecv(&B_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
+  MPI_Irecv(&B_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
+  MPI_Irecv(Bblock, B_buf_len, MPI_DOUBLE, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
 
   // wait to start
   MPI_Barrier(MPI_COMM_WORLD);
@@ -304,14 +335,14 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
     // for(int x = 0; x < B_buf_len; x++) printf(" %f", Bblock[x]);
     // printf("\n");
     timing(&wctime0, &cputime);
-    for(i = 0; i < block_width; i++){
-      iA = start_index(N, rank * block_width + i) - A_buf_offset;
+    for(i = 0; i < p2 - p1; i++){
+      iA = start_index(N, p1 + i) - A_buf_offset;
       for(j = 0; j < block_width; j++){
         iB = start_index(N, block_idx * block_width + j) - B_buf_offset;
         iC = (N * i) + block_idx * block_width + j;
         Cblock[iC] = 0.;
         
-        for (k = 0; k <= MIN(rank * block_width + i, block_idx * block_width + j); k++){
+        for (k = 0; k <= MIN(p1 + i, block_idx * block_width + j); k++){
           Cblock[iC] += Ablock[iA+k] * Bblock[iB+k];
           // printf("Processor %d on round %d calculating Cblock[%d] = Ablock[%d+%d] * Bblock[%d+%d] = %f, products are %f and %f\n",
           //     rank, round, iC, iA, k, iB, k, Cblock[iC], Ablock[iA+k], Bblock[iB+k]);
@@ -366,5 +397,6 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
     }
   }
   printf("\t%d\t%f\t%f\n", rank, comp_time, comm_time);
+  return p2 - p1;
 }
 
