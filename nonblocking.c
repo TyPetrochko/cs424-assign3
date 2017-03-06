@@ -160,14 +160,6 @@ void matrix_init(int N, double **A, double **B, double **C){
   // This assumes A is stored by rows, and B is stored by columns. Other storage schemes are permitted
   for (i=0; i<sizeAB; i++) (*A)[i] = ((double) rand()/(double)RAND_MAX);
   for (i=0; i<sizeAB; i++) (*B)[i] = ((double) rand()/(double)RAND_MAX);
-
-  // printf("COLUMNS!\n");
-  // for(int col = 0; col < N; col++){
-  //   for (int x = start_index(N, col); x < start_index(N, col + 1); x++){
-  //     printf("%f ", (*B)[x]);
-  //   }
-  //   printf("\n");
-  // }
 }
 
 void master(int p, int N, double *A, double *B, double *C, double *Ablock, double *Bblock, double *B2block, double *Cblock){
@@ -254,9 +246,6 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
     }
 
     // Processing loop 
-    // printf("Process %d on round %d has the following column:", rank, round);
-    // for(int x = 0; x < B_buf_len; x++) printf(" %f", Bblock[x]);
-    // printf("\n");
     timing(&wctime0, &cputime);
     for(i = 0; i < block_width; i++){
       iA = start_index(N, rank * block_width + i) - A_buf_offset;
@@ -267,8 +256,6 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
         
         for (k = 0; k <= MIN(rank * block_width + i, block_idx * block_width + j); k++){
           Cblock[iC] += Ablock[iA+k] * Bblock[iB+k];
-          // printf("Processor %d on round %d calculating Cblock[%d] = Ablock[%d+%d] * Bblock[%d+%d] = %f, products are %f and %f\n",
-          //     rank, round, iC, iA, k, iB, k, Cblock[iC], Ablock[iA+k], Bblock[iB+k]);
         }
       }
     }
@@ -280,13 +267,11 @@ void worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2bl
       next = (rank + p - 1) % p;
       timing(&wctime0, &cputime);
       MPI_Wait(&recv, &status);
-      // printf("Process %d received a column from %d with length %d, offset %d\n", rank, rank + 1 % p, B2_buf_len, B2_buf_offset);
       
       if(round != p - 2){
         MPI_Isend(&B2_buf_offset, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send2);
         MPI_Isend(&B2_buf_len, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send2);
         MPI_Isend(B2block, N * block_width, MPI_DOUBLE, next, TAG, MPI_COMM_WORLD, &send2);
-        // printf("Process %d sent %d a column of buf length %d, offset %d\n", rank, next, B2_buf_len, B2_buf_offset);
         MPI_Wait(&send1, &status);
       }
       timing(&wctime1, &cputime);

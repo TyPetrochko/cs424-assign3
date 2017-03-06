@@ -158,22 +158,6 @@ void matrix_init(int N, double **A, double **B, double **C){
   // This assumes A is stored by rows, and B is stored by columns. Other storage schemes are permitted
   for (i=0; i<sizeAB; i++) (*A)[i] = ((double) rand()/(double)RAND_MAX);
   for (i=0; i<sizeAB; i++) (*B)[i] = ((double) rand()/(double)RAND_MAX);
-
-  // printf("COLUMNS!\n");
-  // for(int col = 0; col < N; col++){
-  //   for (int x = start_index(N, col); x < start_index(N, col + 1); x++){
-  //     printf("%f ", (*B)[x]);
-  //   }
-  //   printf("\n");
-  // }
-  // 
-  // printf("ROWS!\n");
-  // for(int row = 0; row < N; row++){
-  //   for (int x = start_index(N, row); x < start_index(N, row + 1); x++){
-  //     printf("%f ", (*A)[x]);
-  //   }
-  //   printf("\n");
-  // }
 }
 
 void master(int p, int N, double *A, double *B, double *C, double *Ablock, double *Bblock, double *B2block, double *Cblock){
@@ -190,7 +174,6 @@ void master(int p, int N, double *A, double *B, double *C, double *Ablock, doubl
   int elts_per_proc = (N * (N + 1)) / (p * 2);
   p1 = p2 = proc = 0;
   while (p2 < N) {
-    //printf("Should we send proc %d rows %d through %d? Comes out to %d elts\n", proc, p1, p2 - 1, start_index(N, p2) - start_index(N, p1));
     if(start_index(N, p2) - start_index(N, p1) > elts_per_proc){
       buf_offset = start_index(N, p1);
       buf_len = start_index(N, p2) - buf_offset;
@@ -202,7 +185,6 @@ void master(int p, int N, double *A, double *B, double *C, double *Ablock, doubl
       MPI_Send(&buf_len, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD);
       
       MPI_Send(A + buf_offset, buf_len, MPI_DOUBLE, proc, TAG, MPI_COMM_WORLD);
-      // printf("Sending process %d rows %d through %d (%d elements), p1 and p2 are %d %d\n", proc, p1, p2 - 1, buf_len, p1, p2);
       p1 = p2;
       proc++;
     } else p2++;
@@ -219,11 +201,9 @@ void master(int p, int N, double *A, double *B, double *C, double *Ablock, doubl
   MPI_Send(&buf_len, 1, MPI_INT, proc, TAG, MPI_COMM_WORLD);
   
   MPI_Send(A + buf_offset, buf_len, MPI_DOUBLE, proc, TAG, MPI_COMM_WORLD);
-  // printf("Sending process %d rows %d through %d (%d elements), p1 and p2 are %d %d\n", proc, p1, p2 - 1, buf_len, p1, p2);
   proc++;
 
   if (p != proc){
-    // printf("Only sent rows to %d of %d processors\n", proc, p);
 
     // signal to stop
     p1 = p2 = buf_offset = buf_len = 0;
@@ -239,7 +219,6 @@ void master(int p, int N, double *A, double *B, double *C, double *Ablock, doubl
     }
   }
   else
-    // printf("All processors received a row block!\n");
   
   /* DONE SENDING REMAINDER */
 
@@ -284,21 +263,12 @@ int worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2blo
   comm_time = 0.0;
 
   // get row assignment
-  // printf("Worker %d entered\n", rank);
   timing(&wctime0, &cputime);
   MPI_Recv(&p1, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(&p2, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(&A_buf_offset, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(&A_buf_len, 1, MPI_INT, ROOT, TAG, MPI_COMM_WORLD, &status);
   MPI_Recv(Ablock, A_buf_len, MPI_DOUBLE, ROOT, TAG, MPI_COMM_WORLD, &status);
-  // printf("Worker %d exited\n", rank);
-  
-  // printf("Data that processor rank %d has (%d elements, p1 and p2 %d %d): \n", rank, A_buf_len, p1, p2);
-  // for(int x = 0; x < A_buf_len; x++){
-  //   printf("%f ", Ablock[x]);
-  // }
-  // printf("\n");
-
   
   // get initial column
   MPI_Irecv(&B_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
@@ -313,7 +283,6 @@ int worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2blo
   comm_time += wctime1 - wctime0;
 
   for(round = 0; round < p; round++){
-    // printf("Processor %d entering round %d\n", rank, round);
     // which B column are we dealing with?
     block_idx = (rank + round) % p;
 
@@ -325,9 +294,6 @@ int worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2blo
       MPI_Isend(&B_buf_offset, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send1);
       MPI_Isend(&B_buf_len, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send1);
       MPI_Isend(Bblock, N * block_width, MPI_DOUBLE, next, TAG, MPI_COMM_WORLD, &send1);
-      // if((float) Bblock[B_buf_len - 1] == (float) 0.0) printf("Process %d round %d sent a block with zeros\n", rank, round);
-
-      // printf("Processor %d sent data to processor %d\n", rank, next);
 
       MPI_Irecv(&B2_buf_offset, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
       MPI_Irecv(&B2_buf_len, 1, MPI_INT, MPI_ANY_SOURCE, TAG, MPI_COMM_WORLD, &recv);
@@ -337,9 +303,6 @@ int worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2blo
     }
 
     // Processing loop 
-    // printf("Process %d on round %d has the following column:", rank, round);
-    // for(int x = 0; x < B_buf_len; x++) printf(" %f", Bblock[x]);
-    // printf("\n");
     timing(&wctime0, &cputime);
     for(i = 0; i < p2 - p1; i++){
       iA = start_index(N, p1 + i) - A_buf_offset;
@@ -350,29 +313,22 @@ int worker(int rank, int p, int N, double *Ablock, double *Bblock, double *B2blo
         
         for (k = 0; k <= MIN(p1 + i, block_idx * block_width + j); k++){
           Cblock[iC] += Ablock[iA+k] * Bblock[iB+k];
-          // printf("Processor %d on round %d calculating Cblock[%d] = Ablock[%d+%d] * Bblock[%d+%d] = %f, products are %f and %f\n",
-          //     rank, round, iC, iA, k, iB, k, Cblock[iC], Ablock[iA+k], Bblock[iB+k]);
         }
       }
     }
     timing(&wctime1, &cputime);
     comp_time += wctime1 - wctime0;
     
-    // printf("Processor %d done processing round %d\n", rank, round);
-
     if(round != p - 1){
       // finish receiving next column
       next = (rank + p - 1) % p;
       timing(&wctime0, &cputime);
       MPI_Wait(&recv, &status);
-      // if((float) B2block[B2_buf_len - 1] == (float) 0.0) printf("Process %d round %d received a block with zeros\n", rank, round);
       
       if(round != p - 2){
         MPI_Isend(&B2_buf_offset, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send2);
         MPI_Isend(&B2_buf_len, 1, MPI_INT, next, TAG, MPI_COMM_WORLD, &send2);
         MPI_Isend(B2block, N * block_width, MPI_DOUBLE, next, TAG, MPI_COMM_WORLD, &send2);
-        // if((float) B2block[B2_buf_len - 1] == (float) 0.0) printf("Process %d round %d sent a block with zeros\n", rank, round);
-        // printf("Process %d sent %d a column of buf length %d, offset %d\n", rank, next, B2_buf_len, B2_buf_offset);
         MPI_Wait(&send1, &status);
       }
       timing(&wctime1, &cputime);
