@@ -1,0 +1,36 @@
+Timing breakdowns:
+Matrix multiplication times:
+   N      TIME (secs)
+	P	comp	comm
+ -----   -------------
+	4	0.021509	0.034301
+	2	0.025411	0.034806
+	3	0.023587	0.037627
+	5	0.020369	0.041870
+	1	0.028172	0.035037
+	6	0.018861	0.046625
+	7	0.016999	0.050591
+	0	0.034110	0.004600
+   1000       0.0433
+	5	0.211964	0.170956
+	4	0.202944	0.179781
+	2	0.207729	0.192101
+	3	0.195035	0.208799
+	6	0.197484	0.204505
+	1	0.220164	0.197560
+	7	0.176517	0.255203
+	0	0.257048	0.091176
+   2000       0.3630
+	4	3.050632	1.565087
+	5	2.709214	1.921260
+	3	3.776600	0.991161
+	2	3.980889	1.127170
+	1	4.102103	1.401343
+	6	2.471913	3.138737
+	0	4.235561	1.087913
+[compute-34-9:1489] *** An error occurred in MPI_Recv
+[compute-34-9:1489] *** reported by process [1805058049,0]
+[compute-34-9:1489] *** on communicator MPI_COMM_WORLD
+[compute-34-9:1489] *** MPI_ERR_COUNT: invalid count argument
+[compute-34-9:1489] *** MPI_ERRORS_ARE_FATAL (processes in this communicator will now abort,
+[compute-34-9:1489] ***    and potentially your MPI job)
