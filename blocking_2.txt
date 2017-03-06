@@ -1,8 +1,17 @@
---------------------------------------------------------------------------
-There are not enough slots available in the system to satisfy the 2 slots 
-that were requested by the application:
-  blocking
-
-Either request fewer slots for your application, or make more slots available
-for use.
---------------------------------------------------------------------------
+Timing breakdowns:
+Matrix multiplication times:
+   N      TIME (secs)
+	P	comp	comm
+ -----   -------------
+	1	0.122055	0.052500
+	0	0.061418	0.089082
+   1000       0.1549
+	1	1.403619	0.288034
+	0	0.588271	1.096294
+   2000       1.6992
+	1	13.856678	2.692136
+	0	6.878609	9.558933
+   4000      16.5028
+	1	111.029419	21.031517
+	0	55.766293	76.020745
+   8000     132.0661
