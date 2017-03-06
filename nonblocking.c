@@ -9,7 +9,7 @@
 #define ROOT 0 // root process id
 #define TAG 99
 #define VERIFY 0 // should we verify our results?
-#define NUM_RUNS 5
+#define NUM_RUNS 4
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define EVEN(rank) ((rank % 2) == 0)
 #define ODD(rank) ((rank % 2) == 1)
@@ -73,8 +73,7 @@ int main(int argc, char **argv) {
   int size, rank, sizeAB, sizeC, iA, iB, iC;
 
   // make sure to change NUM_RUNS along with this!
-  int sizes[NUM_RUNS]={1000,2000,4000,8000,12000};
-  //int sizes[NUM_RUNS]={1000};
+  int sizes[NUM_RUNS]={1000,2000,4000,8000};
   
   double wctime0, wctime1, cputime;
   

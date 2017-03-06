@@ -1,10 +1,7 @@
-
+Timing breakdowns:
 Matrix multiplication times:
    N      TIME (secs)
+	P	comp	comm
  -----   -------------
+	0	0.182682	0.002279
    1000       0.1903
-   2000       2.3123
-   4000      19.5690
-   8000     154.9403
-Abort is in progress...hit ctrl-c again within 5 seconds to forcibly terminate
-

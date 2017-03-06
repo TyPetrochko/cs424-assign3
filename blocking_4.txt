@@ -1,8 +1,8 @@
-Matrix multiplication times:
-   N      TIME (secs)
- -----   -------------
-   1000       0.1091
-   2000       0.8537
-   4000      11.4126
-   8000      94.4821
-  12000     317.8347
+--------------------------------------------------------------------------
+There are not enough slots available in the system to satisfy the 4 slots 
+that were requested by the application:
+  blocking
+
+Either request fewer slots for your application, or make more slots available
+for use.
+--------------------------------------------------------------------------
