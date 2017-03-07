@@ -1,0 +1,14 @@
+   N      TIME (secs)
+        P       comp    comm
+ -----   -------------
+        4       29.608588       7.575787
+        2       33.192631       5.245922
+        3       25.575175       14.886961
+        1       29.181310       11.649721
+        5       22.028394       19.740690
+        6       24.068174       19.229825
+        0       38.386218       4.872115
+   7633      43.6033
+Verifying correctness
+Done verifying correctness, any errors have been reported
+
